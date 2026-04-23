@@ -228,7 +228,10 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.warning("FTMS connect timed out for %s", self._ble_info.address)
             else:
                 _LOGGER.warning("FTMS BLE flow failed: %s", exc)
-            return self.async_abort(reason="cannot_connect")
+            # Exit progress state cleanly before aborting — calling async_abort
+            # directly from a progress-task callback does not reliably dismiss
+            # the spinner in the HA frontend.
+            return self.async_show_progress_done(next_step_id="ble_error")
 
         self._suggested_sensors = list(
             ftms.live_properties if self._discovery_time else ftms.supported_properties
@@ -245,6 +248,13 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("Suggested sensors: %s", self._suggested_sensors)
 
         return self.async_show_progress_done(next_step_id="information")
+
+    async def async_step_ble_error(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Abort after a BLE connection failure, once out of progress state."""
+        return self.async_abort(reason="cannot_connect")
 
     async def async_step_information(self, user_input=None):
         assert self._ftms
