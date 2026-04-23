@@ -1,6 +1,7 @@
 """The FTMS integration."""
 
 import logging
+from typing import cast
 
 import pyftms
 from bleak.exc import BleakError
@@ -20,6 +21,51 @@ from homeassistant.helpers import device_registry as dr
 from .const import DOMAIN
 from .coordinator import DataCoordinator
 from .models import FtmsData
+
+
+def _patch_pyftms_updater() -> None:
+    """Patch pyftms DataUpdater._on_notify to tolerate missing keys.
+
+    FTMS devices report different field subsets in different notifications
+    (per the feature-flags byte). pyftms computes the change set via
+    ``self._result.items() ^ self._prev.items()`` and then indexes
+    ``self._result`` with every key in the XOR. Keys that existed in the
+    previous packet but are absent from the current one raise KeyError.
+    Semantically, an absent field means "not reported this packet", not
+    "reset to zero", so skipping such keys is the correct behaviour.
+    """
+    from pyftms.client.backends import updater as _updater
+    from pyftms.client.backends.event import UpdateEvent, UpdateEventData
+
+    if getattr(_updater.DataUpdater._on_notify, "_ftms_keyerror_patched", False):
+        return
+
+    def _on_notify(self, c, data):
+        _updater._LOGGER.debug("Received notify: %s", data.hex(" ").upper())
+        data_ = self._serializer.deserialize(data)._asdict()
+        _updater._LOGGER.debug("Received notify dict: %s", data_)
+        self._result |= data_
+
+        if data[0] & 1:
+            _updater._LOGGER.debug("'More Data' bit is set. Waiting for next data.")
+            return
+
+        if any(self._result.values()):
+            update = self._result.items() ^ self._prev.items()
+            if update := {k: self._result[k] for k, _ in update if k in self._result}:
+                _updater._LOGGER.debug("Update data: %s", update)
+                update = cast(UpdateEventData, update)
+                update = UpdateEvent(event_id="update", event_data=update)
+                self._cb(update)
+                self._prev = self._result.copy()
+
+        self._result.clear()
+
+    _on_notify._ftms_keyerror_patched = True  # type: ignore[attr-defined]
+    _updater.DataUpdater._on_notify = _on_notify
+
+
+_patch_pyftms_updater()
 
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
