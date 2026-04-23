@@ -6,7 +6,7 @@
       "service_data_uuid": "00001826-0000-1000-8000-00805f9b34fb"
     }
   ],
-  "codeowners": ["@coxtor","@dudanov"],
+  "codeowners": ["@dudanov","@coxtor"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
   "documentation": "https://github.com/coxtor/hassio-ftms/blob/master/README.md",
