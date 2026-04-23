@@ -85,9 +85,8 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
     _suggested_sensors: list[str]
 
     _ftms: FitnessMachine | None = None
-    _task1: asyncio.Task[None] | None = None
-    _task2: asyncio.Task[None] | None = None
-    _task3: asyncio.Task[None] | None = None
+    _ble_task: asyncio.Task[None] | None = None
+    _phase: str = "connecting"
 
     @staticmethod
     @callback
@@ -191,6 +190,16 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders=placeholders,
         )
 
+    async def _ble_flow(self, ftms: FitnessMachine) -> None:
+        """Run connect → optional discovery sleep → disconnect as a single task."""
+        self._phase = "connecting"
+        await ftms.connect()
+        if self._discovery_time:
+            self._phase = "discovering"
+            await asyncio.sleep(self._discovery_time)
+        self._phase = "closing"
+        await ftms.disconnect()
+
     async def async_step_ble_request(
         self,
         user_input: dict[str, Any] | None = None,
@@ -198,48 +207,26 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
         """Connection and data collection step"""
 
         if self._ftms is None:
-            info = self._ble_info
-            self._ftms = get_client(info.device, info.advertisement)
+            self._ftms = get_client(self._ble_info.device, self._ble_info.advertisement)
 
-        uncompleted_task: asyncio.Task[None] | None = None
         ftms = self._ftms
 
-        if not uncompleted_task:
-            if not self._task1:
-                coro = asyncio.wait_for(ftms.connect(), timeout=30)
-                self._task1 = self.hass.async_create_task(coro)
+        if not self._ble_task:
+            self._ble_task = self.hass.async_create_task(self._ble_flow(ftms))
 
-            if not self._task1.done():
-                uncompleted_task, action = self._task1, "connecting"
-            elif self._task1.exception() is not None:
-                _LOGGER.warning("FTMS connect failed: %s", self._task1.exception())
-                return self.async_abort(reason="cannot_connect")
-
-        if not uncompleted_task and self._discovery_time:
-            if not self._task2:
-                coro = asyncio.sleep(self._discovery_time)
-                self._task2 = self.hass.async_create_task(coro)
-
-            if not self._task2.done():
-                uncompleted_task, action = self._task2, "discovering"
-
-        if not uncompleted_task:
-            if not self._task3:
-                coro = ftms.disconnect()
-                self._task3 = self.hass.async_create_task(coro)
-
-            if not self._task3.done():
-                uncompleted_task, action = self._task3, "closing"
-
-        if uncompleted_task:
+        if not self._ble_task.done():
             return self.async_show_progress(
                 step_id="ble_request",
-                progress_action=action,
-                progress_task=uncompleted_task,
+                progress_action=self._phase,
+                progress_task=self._ble_task,
             )
 
+        if not self._ble_task.cancelled() and self._ble_task.exception() is not None:
+            _LOGGER.warning("FTMS BLE flow failed: %s", self._ble_task.exception())
+            return self.async_abort(reason="cannot_connect")
+
         self._suggested_sensors = list(
-            ftms.live_properties if self._task2 else ftms.supported_properties
+            ftms.live_properties if self._discovery_time else ftms.supported_properties
         )
 
         try:
