@@ -193,7 +193,8 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _ble_flow(self, ftms: FitnessMachine) -> None:
         """Run connect → optional discovery sleep → disconnect as a single task."""
         self._phase = "connecting"
-        await ftms.connect()
+        async with asyncio.timeout(60):
+            await ftms.connect()
         if self._discovery_time:
             self._phase = "discovering"
             await asyncio.sleep(self._discovery_time)
@@ -222,7 +223,11 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         if not self._ble_task.cancelled() and self._ble_task.exception() is not None:
-            _LOGGER.warning("FTMS BLE flow failed: %s", self._ble_task.exception())
+            exc = self._ble_task.exception()
+            if isinstance(exc, TimeoutError):
+                _LOGGER.warning("FTMS connect timed out for %s", self._ble_info.address)
+            else:
+                _LOGGER.warning("FTMS BLE flow failed: %s", exc)
             return self.async_abort(reason="cannot_connect")
 
         self._suggested_sensors = list(
