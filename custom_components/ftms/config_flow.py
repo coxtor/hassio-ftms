@@ -239,7 +239,10 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
             ftms.live_properties if self._task2 else ftms.supported_properties
         )
 
-        _LOGGER.debug("Device Information: %s", ftms.device_info)
+        try:
+            _LOGGER.debug("Device Information: %s", ftms.device_info)
+        except AttributeError:
+            _LOGGER.debug("Device Information: unavailable")
         _LOGGER.debug("Machine type: %r", ftms.machine_type)
         _LOGGER.debug("Available sensors: %s", ftms.available_properties)
         _LOGGER.debug("Supported settings: %s", ftms.supported_settings)
@@ -255,9 +258,13 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
             unique_id = self._ftms.address
             await self.async_set_unique_id(unique_id, raise_on_progress=False)
 
-            s1 = self._ftms.device_info.get("manufacturer", "FTMS")
-            s2 = self._ftms.device_info.get("model", "GENERIC")
-            s3 = f"({self._ftms.device_info.get("serial_number", unique_id)})"
+            try:
+                dev_info = self._ftms.device_info
+            except AttributeError:
+                dev_info = {}
+            s1 = dev_info.get("manufacturer", "FTMS")
+            s2 = dev_info.get("model", "GENERIC")
+            s3 = f"({dev_info.get('serial_number', unique_id)})"
 
             return self.async_create_entry(
                 title=" ".join((s1, s2, s3)),
