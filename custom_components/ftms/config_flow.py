@@ -206,11 +206,14 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if not uncompleted_task:
             if not self._task1:
-                coro = ftms.connect()
+                coro = asyncio.wait_for(ftms.connect(), timeout=30)
                 self._task1 = self.hass.async_create_task(coro)
 
             if not self._task1.done():
                 uncompleted_task, action = self._task1, "connecting"
+            elif self._task1.exception() is not None:
+                _LOGGER.warning("FTMS connect failed: %s", self._task1.exception())
+                return self.async_abort(reason="cannot_connect")
 
         if not uncompleted_task and self._discovery_time:
             if not self._task2:

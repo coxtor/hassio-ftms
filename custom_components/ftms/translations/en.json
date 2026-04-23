@@ -32,7 +32,8 @@
       "not_supported": "Device not supported.",
       "already_in_progress": "Device setup wizard is already running.",
       "already_configured": "The device is already configured.",
-      "no_devices_found": "No devices found to setup."
+      "no_devices_found": "No devices found to setup.",
+      "cannot_connect": "Could not connect to the fitness machine. Make sure it is turned on and not in use by another app."
     }
   },
   "options": {
