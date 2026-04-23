@@ -193,8 +193,16 @@ class FTMSConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _ble_flow(self, ftms: FitnessMachine) -> None:
         """Run connect → optional discovery sleep → disconnect as a single task."""
         self._phase = "connecting"
-        async with asyncio.timeout(60):
-            await ftms.connect()
+        try:
+            async with asyncio.timeout(60):
+                await ftms.connect()
+        except BaseException:
+            # Make sure any partial connection is torn down before re-raising.
+            try:
+                await ftms.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
         if self._discovery_time:
             self._phase = "discovering"
             await asyncio.sleep(self._discovery_time)
